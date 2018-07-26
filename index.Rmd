@@ -1,6 +1,0 @@
----
-title: "Building Energy Analysis Report"
-output: html_document
----
-
-"Building Energy Analysis Report" test..
