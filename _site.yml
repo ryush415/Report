@@ -6,6 +6,6 @@ navbar:
     - text: "Home"
       href: index.html
     - text: "Daily Report"
-      href: daily_report.html
+      href: Daily_report.html
     - text: "Weekly Report"
       href: Weekly_report.html
