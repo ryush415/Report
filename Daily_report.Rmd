@@ -1,0 +1,356 @@
+---
+title: "XXX 사옥 냉방 시스템 일간 분석 리포트"
+author: "SK텔레콤 Data기술원"
+date: "분석 대상일: `r Sys.Date() - 1`"
+output: html_document
+---
+
+<div style="margin-bottom:50px;">
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+</div>
+
+```{r datapp1, echo=FALSE, warning=FALSE, message=FALSE}
+require(EDAS)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(readr, readxl, forecast, stringi, stringr, reshape, ggplot2, dplyr, plotly, install = TRUE)
+
+load("~/Report/manual_0725.RData")
+```
+
+## 1. 종합 분석
+
+### 1.1 냉열원 시스템 전기 소비량 및 외기 온도 분석
+```{r plot_1_pp, echo=FALSE, warning=FALSE, message=FALSE}
+df.t1 <- df.s[, c(1, 169, 171, 172, 173)]
+df.t1$total.elec <- df.t1$ch.elec + df.t1$chwp.elec + df.t1$cwp.elec + df.t1$ct.elec 
+df.t1 <- df.t1[, c(1,6,2,3,4,5)]
+df.t1$wbt <- df.w$`Wet-Bulb-Temp_[C]`
+df.t1$dbt <- df.w$`Dry-Bulb-Temp_[C]`
+df.t1$hour <- strftime(df.t1$collect_date, format = "%H", tz ="")
+
+df.t2 <- df.t1[, -c(1:2)] %>%
+  group_by(hour) %>%
+  summarise(ch=round(sum(ch.elec, na.rm=TRUE)/4, 1), 
+            chwp=round(sum(chwp.elec, na.rm=TRUE)/4, 1),
+            cwp=round(sum(cwp.elec, na.rm=TRUE)/4, 1),
+            ct=round(sum(ct.elec, na.rm=TRUE)/4, 1),
+            dbt=round(mean(dbt, na.rm=TRUE), 1),
+            wbt=round(mean(wbt, na.rm=TRUE), 1))
+df.t2$sum <- rowSums(df.t2[, c(2:5)])
+use.t <- as.character(format(round(sum(df.t1$total.elec)/4, 1), nsmall=1, big.mark=","))
+dbt.m <- as.character(round(max(df.w$`Dry-Bulb-Temp_[C]`), 1))
+wbt.m <- as.character(round(max(df.w$`Wet-Bulb-Temp_[C]`), 1))
+```
+
+* 냉열원 시스템의 총 전기 소비량은 약 **`r use.t`** kWh 입니다.  
+  (개별 설비의 15분 간격 소비 전력(kW)을 기반으로 추정된 전기 소비량이므로 계량 데이터와 일부 차이가 있을 수 있습니다.)  
+* 최대 외기 건구온도는 **`r dbt.m`** °C, 최대 습구온도는 **`r wbt.m`** °C 입니다.
+
+<div style="margin-bottom:25px;margin-top:25px;margin-right:50px;margin-left:50px;">
+```{r plot_1, echo=FALSE, warning=FALSE, message=FALSE}
+plot_1 <- plot_ly(df.t2) %>%
+  add_trace(x = ~hour, y = ~ch, type = 'bar', name = '냉동기',
+            marker = list(color = '#FFB3BA'),
+            hoverinfo = "text",
+            text = ~paste(paste('냉동기: ', format(df.t2$ch, big.mark=",") , 'kWh'),
+                          paste('전체: ', format(df.t2$sum, big.mark=",") , 'kWh'), sep = "<br>")) %>%
+  add_trace(x = ~hour, y = ~chwp, type = 'bar', name = '냉수펌프',
+            marker = list(color = '#FFFFBA'),
+            hoverinfo = "text",
+            text = ~paste(paste('냉수펌프: ', format(df.t2$chwp, big.mark=",") , 'kWh'),
+                          paste('전체: ', format(df.t2$sum, big.mark=",") , 'kWh'), sep = "<br>")) %>%
+  add_trace(x = ~hour, y = ~cwp, type = 'bar', name = '냉각수펌프',
+            marker = list(color = '#BAFFC9'),
+            hoverinfo = "text",
+            text = ~paste(paste('냉각수펌프: ', format(df.t2$cwp, big.mark=",") , 'kWh'),
+                          paste('전체: ', format(df.t2$sum, big.mark=",") , 'kWh'), sep = "<br>")) %>%
+  add_trace(x = ~hour, y = ~ct, type = 'bar', name = '냉각탑',
+            marker = list(color = '#BAE1FF'),
+            hoverinfo = "text",
+            text = ~paste(paste('냉각탑: ', format(df.t2$ct, big.mark=",") , 'kWh'),
+                          paste('전체: ', format(df.t2$sum, big.mark=",") , 'kWh'), sep = "<br>")) %>%
+  add_trace(x = ~hour, y = ~dbt, type = 'scatter', mode = 'lines', name = '건구온도', yaxis = 'y2',
+            line = list(color = '#778899'),
+            hoverinfo = "text",
+            text = ~paste(dbt, '°C')) %>%
+  add_trace(x = ~hour, y = ~wbt, type = 'scatter', mode = 'lines', name = '습구온도', yaxis = 'y2',
+            line = list(color = '#LE90FF', dash = 'dash'),
+            hoverinfo = "text",
+            text = ~paste(wbt, '°C')) %>%
+  layout(title = paste0("XXX 사옥 설비 별 종합 전기 소비량 및 외기 온도 (", 
+                        strftime(df.s$collect_date[1], format = "%Y년 %m월 %d일"), ")", sep = ""),
+         xaxis = list(title = '시간'),
+         yaxis = list(side = 'left', title = '전기 소비량 [kWh]', showgrid = FALSE, zeroline = FALSE), barmode = 'stack',
+         yaxis2 = list(side = 'right', overlaying = "y", title = '외기 온도 [°C]', showgrid = FALSE, zeroline = FALSE))
+plot_1 
+rm(df.t1, df.t2, df.tm)
+```
+</div>
+
+### 1.2 냉동기 운전 현황 종합 분석
+```{r plot_2_pp, echo=FALSE, warning=FALSE, message=FALSE}
+df.t1 <- df.s[, c(1, 168, 167, 170, 176)]
+df.t1$chw.dt <- df.t1$ch.cool / df.t1$chwp.flow * 60 / 4.186 
+df.t1$ch.usRT <- (df.t1$ch.cool / 4.186 * 3600) / 3024 
+df.t2 <- df.t1[, c(1, 7, 6, 4, 5)]
+colnames(df.t2) <- c("Time", "전체 냉방 부하 [USRT]", "평균냉수입출구온도차 [C]", 
+                     "전체 COP [-]", "전체 냉동기 부하율 [%]")
+df.tm <- melt(df.t2, id.vars = "Time")
+df.tm$시간 <- as.factor(strftime(df.tm$Time, format = "%m-%d %H:%M", tz = ""))
+df.tm$분석항목 <- df.tm$variable
+colnames(df.tm)[3] <- "값" 
+df.tm$값 <- round(df.tm$값, 1)
+df.tm$id <- as.numeric(df.tm$variable)
+cl.m <- as.character(format(round(max(df.t2$`전체 냉방 부하 [USRT]`), 1), nsmall=1, big.mark=","))
+cl.mt <- strftime(df.t2[which(df.t2$`전체 냉방 부하 [USRT]` == max(df.t2$`전체 냉방 부하 [USRT]`)), 1], format = "%H시 %M분", tz = "")
+chw.m <- as.character(round(max(df.t2$`평균냉수입출구온도차 [C]`), 1))
+cop.m <- as.character(round(mean(df.t2$`전체 COP [-]`), 1))
+plr.m <- as.character(round(mean(df.t2$`전체 냉동기 부하율 [%]`), 1))
+```
+
+* 냉동기의 최대 냉방 부하는 **`r cl.m`** USRT (발생 시각: **`r cl.mt`**) 입니다.  
+* 최대 냉수 입출구 온도차는 **`r chw.m`** °C, 평균 COP는 **`r cop.m`**,  평균 부하율은 **`r plr.m`** %입니다.  
+
+<div style="margin-bottom:50px;margin-top:25px;margin-right:50px;margin-left:50px;">
+```{r plot_2, echo=FALSE, warning=FALSE, message=FALSE}
+plot_2 <- plot_ly(df.tm, x=~Time, y=~값, color=~분석항목,
+                  yaxis = ~paste0("y", id)) %>%
+  add_lines() %>%
+  subplot(nrows = 4, shareX = TRUE) %>%
+  layout(title = paste0("XXX 사옥 냉동기 운전 현황 종합 (",
+                        strftime(df.s$collect_date[1], format = "%Y년 %m월 %d일"), ")", sep = ""),
+         xaxis = list(title = '시간'),
+         yaxis = list(title = '냉방부하 [USRT]'),
+         yaxis2 = list(title = '온도차 [C]'),
+         yaxis3 = list(title = 'COP [-]'),
+         yaxis4 = list(title = '부하율 [%]'),
+         showlegend = FALSE)
+plot_2
+rm(df.t1, df.t2, df.tm)
+```
+</div>
+
+## 2. 냉동기 상세 분석
+
+```{r datapp2, echo=FALSE, warning=FALSE, message=FALSE}
+for (i in 1:length(ch.names)) {
+  df.temporary <- df.s[, c(1, grep(ch.names[i], colnames(df.s)))]
+  if (i == 1 | i == 2 | i == 3) {
+    df.temporary <- df.temporary[, c(1:9, 20:22, 27)]
+  } else {
+    df.temporary <- df.temporary[, c(1:9, 17:19, 22)]
+  }
+  assign(paste("df_c", i, sep=""), df.temporary)
+  rm(df.temporary)
+}
+
+tt <- list(df_c1, df_c2, df_c3, df_c4, df_c5, df_c6, df_c7) 
+for (i in 1:7) {
+  if (i == 1 | i == 2 | i == 3) {
+    tt[[i]]$clCap <- 500
+  } else {
+    tt[[i]]$clCap <- 250
+  }
+  for (j in 1:nrow(tt[[i]])) {
+    if (tt[[i]][j, 7] != 0 & !is.na(tt[[i]][j, 7])) {
+      tt[[i]]$chwDT[j] <- tt[[i]][j, 9] - tt[[i]][j, 6] 
+      tt[[i]][j, 8] <- tt[[i]][j, 8]
+    } else {
+      tt[[i]]$chwDT[j] <- NA 
+      tt[[i]][j, 8] <- NA
+    }
+    if (tt[[i]][j, 3] != 0 & !is.na(tt[[i]][j, 3])) {
+      tt[[i]]$cwDT[j] <- tt[[i]][j, 5] - tt[[i]][j, 2] 
+      tt[[i]][j, 4] <- tt[[i]][j, 4]
+    } else {
+      tt[[i]]$cwDT[j] <- NA 
+      tt[[i]][j, 4] <- NA
+    }
+    if (tt[[i]][j, 11] > 0 & tt[[i]][j, 12] > 0 & !is.na(tt[[i]][j, 12]) & !is.na(tt[[i]][j, 13])) {
+      tt[[i]]$COP[j] <- (tt[[i]][j, 10] * 4.186 / 3600) / tt[[i]][j, 12] 
+    } else {
+      tt[[i]]$COP[j] <- NA
+    }
+    tt[[i]]$CL[j] <- (tt[[i]][j, 10] / 3024)
+    tt[[i]]$PLR[j] <- tt[[i]]$CL[j] / tt[[i]][j, 14] * 100
+    
+  }
+  tt[[i]] <- tt[[i]][, c(1, 13, 12, 18, 19, 17, 8, 11, 15, 4, 16)]
+  colnames(tt[[i]]) <- c("Time", "냉동기 가동 [on/off]", "냉동기 소비 전력 [kW]", "냉동기 냉방 부하 [USRT]", 
+                         "냉동기 부하율 [%]", "냉동기 COP [-]", "냉수 펌프 인버터 출력 [%]", "냉수 유량 [LPM]",
+                         "냉수 입출구 온도차 [C]", "냉각수 펌프 인버터 출력 [%]", "냉각수 입출구 온도차 [C]")
+  assign(paste("df_c", i, sep = ""), tt[[i]])
+}
+```
+
+### 2.1 냉동기 별 가동 현황 분석
+```{r plot_3_pp, echo=FALSE, warning=FALSE, message=FALSE}
+for (i in 1:length(tt)) {
+  df.t <- tt[[i]][, c("Time", "냉동기 가동 [on/off]")]
+  if (i == 1) {df.1 <- df.t} else {df.1 <- merge(df.1, df.t, by = "Time")}
+}
+colnames(df.1)[2:8] <- paste0("냉동기_", 1:7, sep = "")
+df.2 <- melt(df.1, id.vars = "Time")
+df.2$value <- ifelse(df.2$value == 1 , "On", "Off")
+colnames(df.2) <- c("시간", "냉동기", "가동여부")
+ch.on <- as.character(unique(df.2[which(df.2$가동여부 == "On"), 2]))
+
+```
+* 가동된 냉동기는 **`r ch.on`** 입니다.  
+
+<div style="margin-bottom:25px;margin-top:25px;margin-right:50px;margin-left:50px;">
+```{r plot_3, echo=FALSE, warning=FALSE, message=FALSE}
+plot_3 <- plot_ly(df.2, x=~시간, y=~가동여부, color=~냉동기) %>%
+  add_lines() %>%
+  layout(title = paste0("XXX 사옥 냉동기 별 가동 여부 (",
+                        strftime(df.s$collect_date[1], format = "%Y년 %m월 %d일"), ")", sep = ""),
+         xaxis = list(title = '시간'),
+         yaxis = list(title = '가동 여부 [On/Off]'))
+plot_3
+rm(df.t, df.1, df.2)
+```
+</div>
+
+### 2.2 냉동기 별 부하율 분석
+```{r plot_4_pp, echo=FALSE, warning=FALSE, message=FALSE}
+for (i in 1:length(tt)) {
+  df.t <- tt[[i]][, c("Time", "냉동기 부하율 [%]")]
+  if (i == 1) {df.1 <- df.t} else {df.1 <- merge(df.1, df.t, by = "Time")}
+}
+colnames(df.1)[2:8] <- paste0("냉동기_", 1:7, sep = "")
+df.2 <- melt(df.1, id.vars = "Time")
+df.2$value <- round(df.2$value, 1)
+colnames(df.2) <- c("시간", "냉동기", "부하율")
+df.3 <- df.2
+df.3$부하율 <- ifelse(df.3$부하율 == 0, NA, df.3$부하율)
+df.3 <- na.omit(df.3)
+df.4 <- df.3[, c(2:3)] %>%
+  group_by(냉동기) %>%
+  summarise(plr.max = round(max(부하율, na.rm = TRUE), 1),
+            plr.mean = round(mean(부하율, na.rm = TRUE), 1))
+ch.plr1 <- paste0(df.4$냉동기[1:length(df.4$냉동기)], ": ", df.4$plr.max[1:length(df.4$plr.max)], "%", sep="")
+ch.plr2 <- paste0(df.4$냉동기[1:length(df.4$냉동기)], ": ", df.4$plr.mean[1:length(df.4$plr.mean)], "%", sep="")
+```
+* 냉동기별 최대 부하율은 **`r ch.plr1`** 입니다.  
+* 냉동기별 평균 부하율은 **`r ch.plr2`** 입니다. 
+
+<div style="margin-bottom:25px;margin-top:25px;margin-right:50px;margin-left:50px;">
+```{r plot_4, echo=FALSE, warning=FALSE, message=FALSE}
+plot_4 <- plot_ly(df.3, x=~시간, y=~부하율, color=~냉동기) %>%
+  add_lines() %>%
+  layout(title = paste0("XXX 사옥 냉동기 별 부하율 (",
+                        strftime(df.s$collect_date[1], format = "%Y년 %m월 %d일"), ")", sep = ""),
+         xaxis = list(title = '시간'),
+         yaxis = list(title = '냉동기 부하율 [%]'))
+plot_4
+rm(df.t, df.1, df.2, df.3, df.4)
+```
+</div>
+
+### 2.3 냉동기 별 COP 분석
+```{r plot_5_pp, echo=FALSE, warning=FALSE, message=FALSE}
+for (i in 1:length(tt)) {
+  df.t <- tt[[i]][, c("Time", "냉동기 COP [-]")]
+  if (i == 1) {df.1 <- df.t} else {df.1 <- merge(df.1, df.t, by = "Time")}
+}
+colnames(df.1)[2:8] <- paste0("냉동기_", 1:7, sep = "")
+df.2 <- melt(df.1, id.vars = "Time")
+df.2$value <- round(df.2$value, 1)
+colnames(df.2) <- c("시간", "냉동기", "COP")
+df.3 <- df.2
+df.3 <- na.omit(df.3)
+df.4 <- df.3[, c(2:3)] %>%
+  group_by(냉동기) %>%
+  summarise(cop.m1 = round(mean(COP, na.rm = TRUE), 1))
+cop.mean <- paste0(df.4$냉동기[1:length(df.4$냉동기)], ": ", df.4$cop.m1[1:length(df.4$cop.m1)], sep="")
+```
+
+* 냉동기별 평균 COP는 **`r cop.mean`** 입니다. 
+
+<div style="margin-bottom:25px;margin-top:25px;margin-right:50px;margin-left:50px;">
+```{r plot_5, echo=FALSE, warning=FALSE, message=FALSE}
+plot_5 <- plot_ly(df.2, x=~시간, y=~COP, color=~냉동기) %>%
+  add_lines() %>%
+  layout(title = paste0("XXX 사옥 냉동기 별 COP (",
+                        strftime(df.s$collect_date[1], format = "%Y년 %m월 %d일"), ")", sep = ""),
+         xaxis = list(title = '시간'),
+         yaxis = list(title = '냉동기 COP [-]'))
+plot_5
+rm(df.t, df.1, df.2, df.3, df.4)
+```
+</div>
+
+### 2.4 냉동기 별 냉수 입출구 온도차 분석
+```{r plot_6_pp, echo=FALSE, warning=FALSE, message=FALSE}
+for (i in 1:length(tt)) {
+  df.t <- tt[[i]][, c("Time", "냉수 입출구 온도차 [C]")]
+  if (i == 1) {df.1 <- df.t} else {df.1 <- merge(df.1, df.t, by = "Time")}
+}
+colnames(df.1)[2:8] <- paste0("냉동기_", 1:7, sep = "")
+df.2 <- melt(df.1, id.vars = "Time")
+df.2$value <- round(df.2$value, 1)
+df.2$value <- ifelse(df.2$value < 2, NA, df.2$value)
+colnames(df.2) <- c("시간", "냉동기", "냉수입출구온도차")
+df.3 <- df.2
+df.3 <- na.omit(df.3)
+df.4 <- df.3[, c(2:3)] %>%
+  group_by(냉동기) %>%
+  summarise(dt.max = round(max(냉수입출구온도차, na.rm = TRUE), 1),
+            dt.mean = round(mean(냉수입출구온도차, na.rm = TRUE), 1))
+ch.dt1 <- paste0(df.4$냉동기[1:length(df.4$냉동기)], ": ", df.4$dt.max[1:length(df.4$dt.max)], "°C", sep="")
+ch.dt2 <- paste0(df.4$냉동기[1:length(df.4$냉동기)], ": ", df.4$dt.mean[1:length(df.4$dt.mean)], "°C", sep="")
+```
+* 냉동기별 최대 냉수 입출구 온도차는 **`r ch.dt1`** 입니다.  
+* 냉동기별 평균 냉수 입출구 온도차는 **`r ch.dt2`** 입니다. 
+
+<div style="margin-bottom:25px;margin-top:25px;margin-right:50px;margin-left:50px;">
+```{r plot_6, echo=FALSE, warning=FALSE, message=FALSE}
+plot_6 <- plot_ly(df.2, x=~시간, y=~냉수입출구온도차, color=~냉동기) %>%
+  add_lines() %>%
+  layout(title = paste0("XXX 사옥 냉동기 별 냉수 입출구 온도차 (",
+                        strftime(df.s$collect_date[1], format = "%Y년 %m월 %d일"), ")", sep = ""),
+         xaxis = list(title = '시간'),
+         yaxis = list(title = '냉수 입출구 온도차 [°C]'))
+plot_6
+rm(df.t, df.1, df.2, df.3, df.4)
+```
+</div>
+
+### 2.5 냉동기 별 냉각수 입출구 온도차 분석
+```{r plot_7_pp, echo=FALSE, warning=FALSE, message=FALSE}
+for (i in 1:length(tt)) {
+  df.t <- tt[[i]][, c("Time", "냉각수 입출구 온도차 [C]")]
+  if (i == 1) {df.1 <- df.t} else {df.1 <- merge(df.1, df.t, by = "Time")}
+}
+colnames(df.1)[2:8] <- paste0("냉동기_", 1:7, sep = "")
+df.2 <- melt(df.1, id.vars = "Time")
+df.2$value <- round(df.2$value, 1)
+df.2$value <- ifelse(df.2$value < 2, NA, df.2$value)
+colnames(df.2) <- c("시간", "냉동기", "냉각수입출구온도차")
+df.3 <- df.2
+df.3 <- na.omit(df.3)
+df.4 <- df.3[, c(2:3)] %>%
+  group_by(냉동기) %>%
+  summarise(dt2.max = round(max(냉각수입출구온도차, na.rm = TRUE), 1),
+            dt2.mean = round(mean(냉각수입출구온도차, na.rm = TRUE), 1))
+ch.dt3 <- paste0(df.4$냉동기[1:length(df.4$냉동기)], ": ", df.4$dt2.max[1:length(df.4$dt2.max)], "°C", sep="")
+ch.dt4 <- paste0(df.4$냉동기[1:length(df.4$냉동기)], ": ", df.4$dt2.mean[1:length(df.4$dt2.mean)], "°C", sep="")
+```
+
+* 냉동기별 최대 냉각수 입출구 온도차는 **`r ch.dt3`** 입니다.  
+* 냉동기별 평균 냉각수 입출구 온도차는 **`r ch.dt4`** 입니다.
+
+<div style="margin-bottom:50px;margin-top:25px;margin-right:50px;margin-left:50px;">
+```{r plot_7, echo=FALSE, warning=FALSE, message=FALSE}
+plot_7 <- plot_ly(df.2, x=~시간, y=~냉각수입출구온도차, color=~냉동기) %>%
+  add_lines() %>%
+  layout(title = paste0("XXX 사옥 냉동기 별 냉각수 입출구 온도차 (",
+                        strftime(df.s$collect_date[1], format = "%Y년 %m월 %d일"), ")", sep = ""),
+         xaxis = list(title = '시간'),
+         yaxis = list(title = '냉각수 입출구 온도차 [°C]'))
+plot_7
+rm(df.t, df.1, df.2, df.3, df.4, tt, i, j)
+```
+</div>
