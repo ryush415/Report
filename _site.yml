@@ -1,9 +1,0 @@
-name: "XXX Analysis Report"
-output_dir: "."
-navbar:
-  title: "XXX Analysis Report"
-  left:
-    - text: "Daily Report"
-      href: daily_report.html
-    - text: "Weekly Report"
-      href: Weekly_report.html
