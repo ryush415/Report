@@ -9,3 +9,5 @@ navbar:
       href: Daily_report.html
     - text: "Weekly Report"
       href: Weekly_report.html
+    - text: "IEQ Report"
+      href: Weekly_report.html
